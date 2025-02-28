@@ -24,13 +24,13 @@ class ChapterTemplate(ABC):
 class VerticalBottomBarTemplate(ChapterTemplate):
     def draw_chapter_markers(self, frame: np.ndarray, current_time: float, chapters: List[Dict]) -> np.ndarray:
         # Calculate dimensions for chapter markers
-        marker_height = int(self.frame_height * 0.06)  # 6% of video height
-        marker_y = self.frame_height - marker_height - 15  # 15px padding from bottom
-        total_width = self.frame_width - 30  # 15px padding on each side
-        marker_x = 15
+        marker_height = int(self.frame_height * 0.08)  # Increased to 8% of video height
+        marker_y = self.frame_height - marker_height - 20  # Increased padding from bottom
+        total_width = int(self.frame_width * 0.90)  # Reduced to 90% of screen width for better margins
+        marker_x = (self.frame_width - total_width) // 2  # Center the bar horizontally
 
-        # Create gradient background
-        gradient = np.linspace(0.2, 0.4, total_width).reshape(1, -1)
+        # Create gradient background with slightly darker colors for better contrast
+        gradient = np.linspace(0.15, 0.35, total_width).reshape(1, -1)  # Adjusted gradient range
         gradient = np.tile(gradient, (marker_height, 1))
         bg = np.zeros((marker_height, total_width, 3), dtype=np.uint8)
         bg[:, :, 0] = bg[:, :, 1] = bg[:, :, 2] = (gradient * 255).astype(np.uint8)
@@ -47,19 +47,20 @@ class VerticalBottomBarTemplate(ChapterTemplate):
             end_time = chapter['end_time']
             title = chapter['title']
 
-            # Calculate position and width
+            # Calculate position and width with minimum segment width
             start_x = marker_x + int((start_time / video_duration) * total_width)
             end_x = marker_x + int((end_time / video_duration) * total_width)
-            width = min(max(end_x - start_x, 1), total_width)  # Ensure width is within bounds
+            width = max(end_x - start_x, int(marker_height * 1.5))  # Minimum width relative to height
+            width = min(width, total_width)  # Ensure width doesn't exceed total width
 
             # Determine if chapter is active
             is_active = start_time <= current_time <= end_time
             
-            # Create solid color for segments
+            # Create solid color for segments with improved contrast
             if is_active:
-                segment_color = (211, 211, 211)  # Light gray (#D3D3D3)
+                segment_color = (225, 225, 225)  # Lighter gray for better visibility
             else:
-                segment_color = (64, 64, 64)    # Dark gray (#404040)
+                segment_color = (75, 75, 75)    # Slightly lighter dark gray
 
             # Create solid color segment
             segment = np.zeros((marker_height, width, 3), dtype=np.uint8)
@@ -76,8 +77,8 @@ class VerticalBottomBarTemplate(ChapterTemplate):
             frame[marker_y:marker_y+marker_height, start_x:end_x] = \
                 cv2.addWeighted(roi, 0.1, segment, 0.9, 0)
 
-            # Add subtle border effect
-            border_color = (128, 128, 128) if is_active else (64, 64, 64)  # #808080 or #404040
+            # Add subtle border effect with improved contrast
+            border_color = (160, 160, 160) if is_active else (90, 90, 90)  # Lighter borders
             cv2.rectangle(frame,
                          (start_x, marker_y),
                          (end_x, marker_y + marker_height),
@@ -86,15 +87,14 @@ class VerticalBottomBarTemplate(ChapterTemplate):
 
             # Add blue highlight bar for active chapter
             if is_active:
-                highlight_height = 3  # Height of the blue bar
-                highlight_y = marker_y - highlight_height - 2  # Position above the chapter marker
-                # Create gradient blue highlight
+                highlight_height = 4  # Slightly taller highlight
+                highlight_y = marker_y - highlight_height - 2
+                # Create gradient blue highlight with improved colors
                 highlight = np.zeros((highlight_height, width, 3), dtype=np.uint8)
                 for i in range(width):
                     ratio = i / width
-                    # Gradient from darker to lighter blue
-                    blue_start = (41, 98, 255)  # Darker blue
-                    blue_end = (66, 135, 245)   # Lighter blue
+                    blue_start = (51, 108, 255)  # Slightly brighter blue
+                    blue_end = (76, 145, 255)    # Slightly brighter end blue
                     color = tuple(int(c1 + (c2 - c1) * ratio) for c1, c2 in zip(blue_start, blue_end))
                     highlight[:, i] = color
                 
@@ -106,8 +106,8 @@ class VerticalBottomBarTemplate(ChapterTemplate):
                     frame[highlight_y:highlight_y+highlight_height, start_x:end_x] = \
                         cv2.addWeighted(roi, 0.2, highlight, 0.8, 0)
 
-            # Calculate text position for perfect centering
-            font_size = 24 if is_active else 20  # Increased font size for better visibility
+            # Calculate text position with improved font sizes and spacing
+            font_size = 28 if is_active else 24  # Larger font sizes for better readability
             img_pil = Image.fromarray(np.zeros((1, 1, 3), dtype=np.uint8))
             draw = ImageDraw.Draw(img_pil)
             font = ImageFont.truetype(self.font_manager.get_font_path(), font_size)
@@ -115,24 +115,23 @@ class VerticalBottomBarTemplate(ChapterTemplate):
             text_width = text_bbox[2] - text_bbox[0]
             text_height = text_bbox[3] - text_bbox[1]
 
-            # Ensure text width doesn't exceed segment width
-            if text_width > width * 0.9:  # Allow text to take up to 90% of segment width
-                # Scale down font size to fit
-                scale_factor = (width * 0.9) / text_width
+            # Ensure text width doesn't exceed segment width with more padding
+            if text_width > width * 0.85:  # Reduced to 85% for more padding
+                scale_factor = (width * 0.85) / text_width
                 font_size = int(font_size * scale_factor)
                 font = ImageFont.truetype(self.font_manager.get_font_path(), font_size)
                 text_bbox = draw.textbbox((0, 0), title, font=font)
                 text_width = text_bbox[2] - text_bbox[0]
                 text_height = text_bbox[3] - text_bbox[1]
 
-            # Only draw text if segment is wide enough
-            if width > text_width + 20:  # Increased padding for better spacing
-                # Ensure text stays within frame boundaries
-                text_x = max(marker_x, min(start_x + (width - text_width) // 2, marker_x + total_width - text_width))
+            # Only draw text if segment is wide enough with increased minimum width
+            if width > text_width + 30:  # Increased padding for better spacing
+                # Center text in segment with improved positioning
+                text_x = start_x + (width - text_width) // 2
                 text_y = marker_y + (marker_height - text_height) // 2
                 
-                # Draw text with modern styling - no shadows for cleaner look
-                text_color = (64, 64, 64) if is_active else (128, 128, 128)  # Dark gray (#404040) or #808080
+                # Draw text with improved colors
+                text_color = (50, 50, 50) if is_active else (160, 160, 160)  # Better contrast
                 frame = self.font_manager.put_text_pil(frame, title,
                                                       (text_x, text_y),
                                                       font_size=font_size,
