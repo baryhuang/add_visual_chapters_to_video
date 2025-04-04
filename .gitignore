@@ -6,3 +6,5 @@ fonts/
 *.woff
 *.woff2
 *.eot
+
+.env

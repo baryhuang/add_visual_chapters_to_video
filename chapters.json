@@ -1,32 +1,32 @@
 [
     {
-        "title": "宣告我是羊圈的門",
+        "title": "1. 我是系列4 : 好牧人",
         "start_time": 0,
-        "end_time": 218
+        "end_time": 63
     },
     {
-        "title": "誰是賊和強盜",
-        "start_time": 218,
-        "end_time": 475
+        "title": "2. 舊約當時的聽眾",
+        "start_time": 63,
+        "end_time": 138
     },
     {
-        "title": "不是看門人, 不是牧人, 我是門",
-        "start_time": 475,
-        "end_time": 626
+        "title": "3. 好牧人和壞牧人",
+        "start_time": 138,
+        "end_time": 302
     },
     {
-        "title": "耶穌是唯一的門",
-        "start_time": 626,
-        "end_time": 950
+        "title": "4. 好牧人和雇工",
+        "start_time": 302,
+        "end_time": 611
     },
     {
-        "title": "我們要當好守門人, 不做法利賽人",
-        "start_time": 950,
-        "end_time": 1202
+        "title": "5. 好牧人如何牧養",
+        "start_time": 611,
+        "end_time": 849
     },
     {
-        "title": "總結禱告",
-        "start_time": 1202,
-        "end_time": 1350
+        "title": "6. 牧人最終將怎處理羊群",
+        "start_time": 849,
+        "end_time": 1070
     }
 ]
