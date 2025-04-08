@@ -14,9 +14,9 @@ def process_with_gpt4o(messages: List[Dict], json_schema: Dict) -> Dict:
     openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
     try:
-        print(f"[DEBUG] process_with_gpt4o - Calling OpenAI API with {len(messages)} messages")
-        print(f"[DEBUG] process_with_gpt4o - First message content type: {type(messages[0]['content'])}")
-        print(f"[DEBUG] process_with_gpt4o - Function name: {json_schema['name']}")
+        # print(f"[DEBUG] process_with_gpt4o - Calling OpenAI API with {len(messages)} messages")
+        # print(f"[DEBUG] process_with_gpt4o - First message content type: {type(messages[0]['content'])}")
+        # print(f"[DEBUG] process_with_gpt4o - Function name: {json_schema['name']}")
         
         start_time = datetime.now()
         response = openai_client.chat.completions.create(
@@ -788,28 +788,43 @@ class KeyFrameGenerator:
         
         return key_frames
 
-def get_processed_frames(csv_path: str) -> set:
+def get_processed_frames(progress_file: str) -> set:
     """
-    Get the set of already processed frames from the contacts CSV file.
+    Get the set of already processed frames from the progress file.
     
     Args:
-        csv_path: Path to the contacts CSV file
+        progress_file: Path to the progress file
         
     Returns:
         set: Set of processed frame filenames
     """
     processed_frames = set()
-    if os.path.exists(csv_path):
+    if os.path.exists(progress_file):
         try:
-            with open(csv_path, 'r', newline='', encoding='utf-8') as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    if row.get('source_frame'):
-                        processed_frames.add(row['source_frame'])
-                        print(f"Found already processed frame in contacts.csv: {row['source_frame']}")
+            with open(progress_file, 'r', encoding='utf-8') as f:
+                for line in f:
+                    frame_name = line.strip()
+                    if frame_name:
+                        processed_frames.add(frame_name)
+                        # print(f"Found already processed frame: {frame_name}")
         except Exception as e:
-            print(f"Error reading contacts CSV: {str(e)}")
+            print(f"Error reading progress file: {str(e)}")
     return processed_frames
+
+def update_progress_file(progress_file: str, frame_name: str) -> None:
+    """
+    Update the progress file with a newly processed frame.
+    
+    Args:
+        progress_file: Path to the progress file
+        frame_name: Name of the processed frame
+    """
+    try:
+        with open(progress_file, 'a', encoding='utf-8') as f:
+            f.write(f"{frame_name}\n")
+            f.flush()  # Ensure immediate write
+    except Exception as e:
+        print(f"Error updating progress file: {str(e)}")
 
 def save_contacts_to_csv(contacts: List[Dict], output_path: str, mode: str = 'w'):
     """
@@ -838,10 +853,50 @@ def save_contacts_to_csv(contacts: List[Dict], output_path: str, mode: str = 'w'
     
     print(f"\nSaved {len(contacts)} contacts to {output_path}")
 
+def get_unique_contacts(contacts: List[Dict]) -> List[Dict]:
+    """
+    Get unique contacts based on name and company.
+    
+    Args:
+        contacts: List of contact dictionaries
+        
+    Returns:
+        List[Dict]: List of unique contacts
+    """
+    unique_contacts = {}
+    for contact in contacts:
+        key = f"{contact.get('name', '').lower()}_{contact.get('company', '').lower()}"
+        if key not in unique_contacts:
+            unique_contacts[key] = contact
+    return list(unique_contacts.values())
+
+def print_contact_stats(contacts: List[Dict], unique_contacts: List[Dict]) -> None:
+    """
+    Print statistics about the contacts found.
+    
+    Args:
+        contacts: List of all contacts
+        unique_contacts: List of unique contacts
+    """
+    print("\nContact Statistics:")
+    print(f"Total contacts found: {len(contacts)}")
+    print(f"Unique contacts: {len(unique_contacts)}")
+    print(f"Duplicates removed: {len(contacts) - len(unique_contacts)}")
+    
+    # Count contacts by company
+    company_counts = {}
+    for contact in unique_contacts:
+        company = contact.get('company', 'Unknown')
+        company_counts[company] = company_counts.get(company, 0) + 1
+    
+    print("\nContacts by company:")
+    for company, count in sorted(company_counts.items(), key=lambda x: x[1], reverse=True):
+        print(f"  {company}: {count}")
+
 def analyze_keyframes(keyframes_dir: str, scale_percent: int = 30, csv_path: str = None) -> List[Dict]:
     """
     Analyze all keyframe images in the directory to extract contact information.
-    Tracks progress in the contacts CSV file and saves results incrementally.
+    Tracks progress in a separate progress file and saves results incrementally.
     
     Args:
         keyframes_dir: Directory containing keyframe images
@@ -855,14 +910,16 @@ def analyze_keyframes(keyframes_dir: str, scale_percent: int = 30, csv_path: str
     keyframe_files = sorted([f for f in os.listdir(keyframes_dir) if f.startswith('frame_')])
     all_contacts = []
     
-    # Get already processed frames from CSV
-    processed_frames = get_processed_frames(csv_path) if csv_path else set()
+    # Set up progress file path
+    progress_file = os.path.join(keyframes_dir, "processed_frames.txt")
+    
     
     print(f"\nAnalyzing {len(keyframe_files)} keyframes...")
-    print(f"Found {len(processed_frames)} already processed frames")
     
     for i, filename in enumerate(keyframe_files, 1):
-        # Skip if already processed
+        # Get already processed frames from progress file
+        processed_frames = get_processed_frames(progress_file)    # Skip if already processed
+        print(f"Found {len(processed_frames)} already processed frames")
         if filename in processed_frames:
             print(f"Skipping already processed frame {i}/{len(keyframe_files)}: {filename}")
             continue
@@ -883,21 +940,31 @@ def analyze_keyframes(keyframes_dir: str, scale_percent: int = 30, csv_path: str
         temp_path = os.path.join(keyframes_dir, f"temp_{filename}")
         cv2.imwrite(temp_path, scaled_img)
         
-        print(f"Processing frame {i}/{len(keyframe_files)}: {filename}")
+        print(f"\nProcessing frame {i}/{len(keyframe_files) - len(processed_frames)}: {filename}")
         
         try:
             # Extract contact information
             result = extract_contact_info(temp_path)
+            contacts = result.get('contacts', [])
+            
+            if contacts:
+                print(f"\nFound {len(contacts)} contacts in frame {filename}:")
+                for contact in contacts:
+                    print(f"  Name: {contact.get('name', 'N/A')}")
+                    print(f"  Title: {contact.get('title', 'N/A')}")
+                    print(f"  Company: {contact.get('company', 'N/A')}")
+                    print("  ---")
             
             # Add source information to each contact
-            contacts = []
-            for contact in result.get('contacts', []):
+            for contact in contacts:
                 contact['source_frame'] = filename
-                contacts.append(contact)
             
-            # Save contacts immediately after processing
+            # Save contacts immediately after processing with proper quoting
             if contacts and csv_path:
                 save_contacts_to_csv(contacts, csv_path, mode='a')
+            
+            # Update progress file after successful processing
+            update_progress_file(progress_file, filename)
             
             all_contacts.extend(contacts)
             
@@ -907,6 +974,10 @@ def analyze_keyframes(keyframes_dir: str, scale_percent: int = 30, csv_path: str
             # Clean up temporary file
             if os.path.exists(temp_path):
                 os.remove(temp_path)
+    
+    # Get unique contacts and print statistics
+    unique_contacts = get_unique_contacts(all_contacts)
+    print_contact_stats(all_contacts, unique_contacts)
     
     return all_contacts
 
