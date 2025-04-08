@@ -7,6 +7,7 @@ from typing import List, Tuple, Dict
 from datetime import datetime
 import json
 import base64
+import csv
 
 def process_with_gpt4o(messages: List[Dict], json_schema: Dict) -> Dict:
     from openai import OpenAI
@@ -65,7 +66,7 @@ def encode_image_to_base64(image_path: str) -> str:
         print(f"Error encoding image: {str(e)}")
         return ""
 
-def extract_contact_info(search_query: str, prompt: str, image_path: str) -> Dict:
+def extract_contact_info(image_path: str) -> Dict:
     """
     Extract contact information from an image using GPT-4o vision capabilities.
     
@@ -787,13 +788,133 @@ class KeyFrameGenerator:
         
         return key_frames
 
+def get_processed_frames(csv_path: str) -> set:
+    """
+    Get the set of already processed frames from the contacts CSV file.
+    
+    Args:
+        csv_path: Path to the contacts CSV file
+        
+    Returns:
+        set: Set of processed frame filenames
+    """
+    processed_frames = set()
+    if os.path.exists(csv_path):
+        try:
+            with open(csv_path, 'r', newline='', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    if row.get('source_frame'):
+                        processed_frames.add(row['source_frame'])
+                        print(f"Found already processed frame in contacts.csv: {row['source_frame']}")
+        except Exception as e:
+            print(f"Error reading contacts CSV: {str(e)}")
+    return processed_frames
+
+def save_contacts_to_csv(contacts: List[Dict], output_path: str, mode: str = 'w'):
+    """
+    Save extracted contact information to a CSV file.
+    
+    Args:
+        contacts: List of contact dictionaries
+        output_path: Path to save the CSV file
+        mode: File open mode ('w' for write, 'a' for append)
+    """
+    if not contacts:
+        print("No contacts to save")
+        return
+        
+    # Define CSV fields
+    fields = ['name', 'title', 'company', 'email', 'phone', 'website', 'source_frame']
+    
+    # Check if file exists to determine if we need to write header
+    file_exists = os.path.exists(output_path) and mode == 'a'
+    
+    with open(output_path, mode, newline='', encoding='utf-8') as f:
+        writer = csv.DictWriter(f, fieldnames=fields, quoting=csv.QUOTE_ALL)
+        if not file_exists:
+            writer.writeheader()
+        writer.writerows(contacts)
+    
+    print(f"\nSaved {len(contacts)} contacts to {output_path}")
+
+def analyze_keyframes(keyframes_dir: str, scale_percent: int = 30, csv_path: str = None) -> List[Dict]:
+    """
+    Analyze all keyframe images in the directory to extract contact information.
+    Tracks progress in the contacts CSV file and saves results incrementally.
+    
+    Args:
+        keyframes_dir: Directory containing keyframe images
+        scale_percent: Percentage to scale images before analysis
+        csv_path: Path to the contacts CSV file
+        
+    Returns:
+        List[Dict]: List of extracted contact information
+    """
+    # Get list of keyframe files
+    keyframe_files = sorted([f for f in os.listdir(keyframes_dir) if f.startswith('frame_')])
+    all_contacts = []
+    
+    # Get already processed frames from CSV
+    processed_frames = get_processed_frames(csv_path) if csv_path else set()
+    
+    print(f"\nAnalyzing {len(keyframe_files)} keyframes...")
+    print(f"Found {len(processed_frames)} already processed frames")
+    
+    for i, filename in enumerate(keyframe_files, 1):
+        # Skip if already processed
+        if filename in processed_frames:
+            print(f"Skipping already processed frame {i}/{len(keyframe_files)}: {filename}")
+            continue
+            
+        filepath = os.path.join(keyframes_dir, filename)
+        
+        # Read and scale the image
+        img = cv2.imread(filepath)
+        if img is None:
+            print(f"Error reading image: {filepath}")
+            continue
+            
+        width = int(img.shape[1] * scale_percent / 100)
+        height = int(img.shape[0] * scale_percent / 100)
+        scaled_img = cv2.resize(img, (width, height))
+        
+        # Save scaled image temporarily
+        temp_path = os.path.join(keyframes_dir, f"temp_{filename}")
+        cv2.imwrite(temp_path, scaled_img)
+        
+        print(f"Processing frame {i}/{len(keyframe_files)}: {filename}")
+        
+        try:
+            # Extract contact information
+            result = extract_contact_info(temp_path)
+            
+            # Add source information to each contact
+            contacts = []
+            for contact in result.get('contacts', []):
+                contact['source_frame'] = filename
+                contacts.append(contact)
+            
+            # Save contacts immediately after processing
+            if contacts and csv_path:
+                save_contacts_to_csv(contacts, csv_path, mode='a')
+            
+            all_contacts.extend(contacts)
+            
+        except Exception as e:
+            print(f"Error processing {filename}: {str(e)}")
+        finally:
+            # Clean up temporary file
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+    
+    return all_contacts
+
 def main():
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Extract key frames from a video')
-    parser.add_argument('--video', '-v', type=str, required=True,
+    parser.add_argument('--video', '-v', type=str,
                         help='Path to the input video file')
-    parser.add_argument('--output', '-o', type=str, default='keyframes',
-                        help='Directory to save extracted frames')
     parser.add_argument('--threshold', '-t', type=float, default=0.3,
                         help='Overlap threshold for detecting key frames (0.0-1.0)')
     parser.add_argument('--max-overlap', '-m', type=float, default=0.6,
@@ -802,25 +923,52 @@ def main():
                         help='Percentage to scale the output thumbnails (default: 30%%)')
     parser.add_argument('--no-filter', action='store_true',
                         help='Disable redundant frame filtering')
+    parser.add_argument('--analyze', '-a', action='store_true',
+                        help='Analyze existing keyframes to extract contact information')
     
     args = parser.parse_args()
     
-    # Create output directory (use video name as subfolder by default)
+    if not args.video and not args.analyze:
+        parser.error("Either --video or --analyze must be specified")
+    
+    # Create output directory based on video name
     video_name = os.path.splitext(os.path.basename(args.video))[0]
-    output_dir = os.path.join(args.output, video_name)
+    output_dir = os.path.join(os.path.dirname(args.video), video_name)
     
-    # Initialize and run key frame generator
-    generator = KeyFrameGenerator(
-        args.video,
-        overlap_threshold=args.threshold
-    )
+    # Process video and extract keyframes if not in analyze-only mode
+    if not args.analyze:
+        # Initialize and run key frame generator
+        generator = KeyFrameGenerator(
+            args.video,
+            overlap_threshold=args.threshold
+        )
+        
+        # Extract key frames with filtering
+        key_frames = generator.extract_key_frames(
+            output_dir, 
+            save_json=True,
+            filter_redundant=not args.no_filter
+        )
     
-    # Extract key frames with filtering
-    key_frames = generator.extract_key_frames(
-        output_dir, 
-        save_json=True,
-        filter_redundant=not args.no_filter
-    )
+    # Analyze keyframes if requested
+    if args.analyze:
+        keyframes_dir = os.path.join(output_dir, "keyframes")
+        if not os.path.exists(keyframes_dir):
+            keyframes_dir = output_dir
+            
+        if not os.path.exists(keyframes_dir):
+            print(f"Error: Keyframes directory not found: {keyframes_dir}")
+            return
+            
+        # Set up CSV path
+        csv_path = os.path.join(output_dir, "contacts.csv")
+            
+        # Extract contact information from keyframes
+        contacts = analyze_keyframes(keyframes_dir, args.scale, csv_path)
+        
+        # Save to CSV
+        csv_path = os.path.join(output_dir, "contacts.csv")
+        save_contacts_to_csv(contacts, csv_path)
 
 if __name__ == '__main__':
     main() 
