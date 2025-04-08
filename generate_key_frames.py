@@ -826,7 +826,7 @@ def update_progress_file(progress_file: str, frame_name: str) -> None:
     except Exception as e:
         print(f"Error updating progress file: {str(e)}")
 
-def save_contacts_to_csv(contacts: List[Dict], output_path: str, mode: str = 'w'):
+def save_contacts_to_csv(contacts: List[Dict], output_path: str, mode: str = 'a'):
     """
     Save extracted contact information to a CSV file.
     
@@ -865,7 +865,7 @@ def get_unique_contacts(contacts: List[Dict]) -> List[Dict]:
     """
     unique_contacts = {}
     for contact in contacts:
-        key = f"{contact.get('name', '').lower()}_{contact.get('company', '').lower()}"
+        key = f"{contact.get('name', '').lower()}"
         if key not in unique_contacts:
             unique_contacts[key] = contact
     return list(unique_contacts.values())
@@ -893,6 +893,54 @@ def print_contact_stats(contacts: List[Dict], unique_contacts: List[Dict]) -> No
     for company, count in sorted(company_counts.items(), key=lambda x: x[1], reverse=True):
         print(f"  {company}: {count}")
 
+def deduplicate_contacts_csv(input_csv_path: str, output_csv_path: str) -> None:
+    """
+    Read contacts CSV, find unique contacts by name and company, and save to a new CSV.
+    
+    Args:
+        input_csv_path: Path to the input contacts CSV file
+        output_csv_path: Path to save the deduplicated contacts CSV file
+    """
+    if not os.path.exists(input_csv_path):
+        print(f"Input CSV file not found: {input_csv_path}")
+        return
+        
+    try:
+        # Read all contacts from the CSV
+        all_contacts = []
+        with open(input_csv_path, 'r', newline='', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                all_contacts.append(row)
+                
+        # Use dictionary to find unique contacts by name and company
+        unique_contacts = {}
+        for contact in all_contacts:
+            name = contact.get('name', '').strip().lower()
+            company = contact.get('company', '').strip().lower()
+            
+            # Skip entries without name
+            if not name:
+                continue
+                
+            key = f"{name}"
+            unique_contacts[key] = contact
+            
+        # Convert back to list
+        unique_list = list(unique_contacts.values())
+        
+        # Save unique contacts to output CSV
+        with open(output_csv_path, 'w', newline='', encoding='utf-8') as f:
+            if unique_list:
+                writer = csv.DictWriter(f, fieldnames=unique_list[0].keys(), quoting=csv.QUOTE_ALL)
+                writer.writeheader()
+                writer.writerows(unique_list)
+                
+        print(f"\nGenerated deduplicated contacts: {len(unique_list)} unique contacts saved to {output_csv_path}")
+        
+    except Exception as e:
+        print(f"Error deduplicating contacts CSV: {str(e)}")
+
 def analyze_keyframes(keyframes_dir: str, scale_percent: int = 30, csv_path: str = None) -> List[Dict]:
     """
     Analyze all keyframe images in the directory to extract contact information.
@@ -913,13 +961,13 @@ def analyze_keyframes(keyframes_dir: str, scale_percent: int = 30, csv_path: str
     # Set up progress file path
     progress_file = os.path.join(keyframes_dir, "processed_frames.txt")
     
-    
     print(f"\nAnalyzing {len(keyframe_files)} keyframes...")
     
     for i, filename in enumerate(keyframe_files, 1):
         # Get already processed frames from progress file
-        processed_frames = get_processed_frames(progress_file)    # Skip if already processed
+        processed_frames = get_processed_frames(progress_file)    
         print(f"Found {len(processed_frames)} already processed frames")
+        
         if filename in processed_frames:
             print(f"Skipping already processed frame {i}/{len(keyframe_files)}: {filename}")
             continue
@@ -974,6 +1022,11 @@ def analyze_keyframes(keyframes_dir: str, scale_percent: int = 30, csv_path: str
             # Clean up temporary file
             if os.path.exists(temp_path):
                 os.remove(temp_path)
+    
+    # Generate final deduplicated contacts file
+    if csv_path:
+        final_csv_path = os.path.join(os.path.dirname(csv_path), "final_contacts.csv")
+        deduplicate_contacts_csv(csv_path, final_csv_path)
     
     # Get unique contacts and print statistics
     unique_contacts = get_unique_contacts(all_contacts)
@@ -1037,9 +1090,11 @@ def main():
         # Extract contact information from keyframes
         contacts = analyze_keyframes(keyframes_dir, args.scale, csv_path)
         
-        # Save to CSV
-        csv_path = os.path.join(output_dir, "contacts.csv")
-        save_contacts_to_csv(contacts, csv_path)
+        # Note: contacts.csv is saved incrementally during analysis
+        # and final_contacts.csv is generated at the end of analysis
+        print(f"\nAnalysis complete!")
+        print(f"- All extracted contacts saved to: {csv_path}")
+        print(f"- Deduplicated contacts saved to: {os.path.join(output_dir, 'final_contacts.csv')}")
 
 if __name__ == '__main__':
     main() 
