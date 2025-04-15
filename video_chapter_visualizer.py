@@ -279,6 +279,7 @@ class VerticalLeftBarTemplate(ChapterTemplate):
 
 class VideoChapterVisualizer:
     def __init__(self, video_path: str, chapters_path: str, template_type: str = 'bottom'):
+        self.video_path = video_path  # Store the video path
         self.cap = cv2.VideoCapture(video_path)
         self.frame_width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.frame_height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -311,9 +312,12 @@ class VideoChapterVisualizer:
         Args:
             output_path (str): Path where the processed video will be saved
         """
+        # Create temporary file for video without audio
+        temp_output = output_path.replace('.mp4', '_temp.mp4')
+        
         # Create video writer
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(output_path, fourcc, self.fps,
+        out = cv2.VideoWriter(temp_output, fourcc, self.fps,
                             (self.frame_width, self.frame_height))
 
         frame_count = 0
@@ -350,25 +354,70 @@ class VideoChapterVisualizer:
         # Release resources
         self.cap.release()
         out.release()
-
-        print(f"\nProcessing complete!\nOutput saved to: {output_path}")
+        
+        # Copy audio from original video to the output using ffmpeg
+        import subprocess
+        import shutil
+        import os
+        
+        try:
+            print("Adding original audio to the output video...")
+            
+            # Check if ffmpeg is available
+            if shutil.which('ffmpeg') is None:
+                raise Exception("FFmpeg not found. Please install FFmpeg to include audio in the output.")
+            
+            cmd = [
+                'ffmpeg',
+                '-i', temp_output,
+                '-i', self.video_path,
+                '-c:v', 'copy',
+                '-c:a', 'aac',
+                '-map', '0:v:0',
+                '-map', '1:a:0',
+                '-shortest',
+                output_path,
+                '-y'
+            ]
+            subprocess.run(cmd, check=True)
+            
+            # Remove temporary file
+            os.remove(temp_output)
+            print(f"\nProcessing complete!\nOutput with audio saved to: {output_path}")
+        except Exception as e:
+            # If ffmpeg fails, rename temp file to output file so we at least have the video without audio
+            if os.path.exists(temp_output):
+                os.rename(temp_output, output_path)
+            print(f"\nWarning: Failed to add audio: {str(e)}")
+            print(f"Output saved without audio to: {output_path}")
 
 def main():
     import argparse
+    import os
 
     parser = argparse.ArgumentParser(description='Add chapter visualizations to a video')
     parser.add_argument('--video', '-v', type=str, default='input_video.mp4',
                         help='Path to the input video file')
     parser.add_argument('--chapters', '-c', type=str, default='chapters.json',
                         help='Path to the JSON chapter file')
-    parser.add_argument('--output', '-o', type=str, default='output_video.mp4',
-                        help='Path for the output video file')
+    parser.add_argument('--output', '-o', type=str, default=None,
+                        help='Path for the output video file (default: input_filename_with_chapters.mp4)')
     parser.add_argument('--preview', '-p', action='store_true',
                         help='Preview mode: process only first 10 seconds')
     parser.add_argument('--template', '-t', type=str, choices=['bottom', 'left'],
                         default='bottom', help='Chapter visualization template (bottom or left)')
 
     args = parser.parse_args()
+    
+    # Generate output path if not specified
+    if args.output is None:
+        input_path = args.video
+        basename = os.path.basename(input_path)
+        filename, ext = os.path.splitext(basename)
+        output_basename = f"{filename}_with_chapters{ext}"
+        output_dir = os.path.dirname(os.path.abspath(input_path))
+        args.output = os.path.join(output_dir, output_basename)
+        print(f"Output will be saved to: {args.output}")
 
     visualizer = VideoChapterVisualizer(args.video, args.chapters, args.template)
     if args.preview:

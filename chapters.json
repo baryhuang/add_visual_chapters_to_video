@@ -1,32 +1,32 @@
 [
     {
-        "title": "1. 我是系列4 : 好牧人",
+        "title": "I) 引言 - 家庭的根基",
         "start_time": 0,
-        "end_time": 63
+        "end_time": 50
     },
     {
-        "title": "2. 舊約當時的聽眾",
-        "start_time": 63,
-        "end_time": 138
+        "title": "II) 職場中應對巴別塔異文化",
+        "start_time": 50,
+        "end_time": 264
     },
     {
-        "title": "3. 好牧人和壞牧人",
-        "start_time": 138,
-        "end_time": 302
+        "title": "   1) 找到靠近主的朋友",
+        "start_time": 264,
+        "end_time": 391
     },
     {
-        "title": "4. 好牧人和雇工",
-        "start_time": 302,
-        "end_time": 611
+        "title": "   2) 要有智慧",
+        "start_time": 391,
+        "end_time": 489
     },
     {
-        "title": "5. 好牧人如何牧養",
-        "start_time": 611,
-        "end_time": 849
+        "title": "   3) 隱秘中對神忠心",
+        "start_time": 489,
+        "end_time": 683
     },
     {
-        "title": "6. 牧人最終將怎處理羊群",
-        "start_time": 849,
-        "end_time": 1070
+        "title": "III) 堅守神掌權的信念",
+        "start_time": 683,
+        "end_time": 1212
     }
 ]
